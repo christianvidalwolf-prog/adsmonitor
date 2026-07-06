@@ -13,7 +13,9 @@ import {
   MARKETPLACE_CURRENCY,
   normalizeTerm,
   type CanonicalField,
+  type CommitResult,
   type CommitRequest,
+  type ImportedFactRow,
   type ImportMeta,
   type Marketplace,
 } from "../../../shared/src";
@@ -193,7 +195,62 @@ importsRouter.post("/commit", (req, res) => {
   // No se borra el pending: un bulksheet contiene varios candidatos y el
   // usuario puede importar el siguiente sin volver a subir el fichero.
   // La caducidad de 30 min lo limpia igualmente.
-  res.json({ importId, rowCount: analysis.normalized.length, forced: !!overlap });
+  const importMeta: ImportMeta = {
+    id: importId,
+    filename,
+    reportType: analysis.reportType!,
+    marketplace: body.marketplace,
+    source: body.source,
+    currency,
+    dateFrom: body.dateFrom,
+    dateTo: body.dateTo,
+    rowCount: analysis.normalized.length,
+    hasDateColumn: analysis.hasDateColumn,
+    missingFields: analysis.missingOptionalMetrics,
+    uploadedAt: new Date().toISOString(),
+  };
+  const facts: ImportedFactRow[] = analysis.normalized.map((r) => ({
+    importId,
+    reportType: analysis.reportType!,
+    marketplace: body.marketplace,
+    source: body.source,
+    currency,
+    date: r.date,
+    campaignId: r.campaignId,
+    adGroupId: r.adGroupId,
+    keywordId: r.keywordId,
+    productTargetingId: r.productTargetingId,
+    portfolioName: r.portfolioName,
+    campaignName: r.campaignName,
+    campaignType: r.campaignType,
+    adGroupName: r.adGroupName,
+    keywordText: r.keywordText,
+    matchType: r.matchType,
+    searchTerm: r.searchTerm,
+    asin: r.asin,
+    sku: r.sku,
+    productTitle: r.productTitle,
+    status: r.status,
+    bid: r.bid,
+    placement: r.placement,
+    placementPercentage: r.placementPercentage,
+    topSearchImpressionShare: r.topSearchImpressionShare,
+    topSearchBidAdjustment: r.topSearchBidAdjustment,
+    impressions: r.impressions,
+    clicks: r.clicks,
+    spend: r.spend,
+    sales: r.sales,
+    orders: r.orders,
+    units: r.units,
+  }));
+  const out: CommitResult = {
+    importId,
+    rowCount: analysis.normalized.length,
+    forced: !!overlap,
+    importMeta,
+    facts,
+  };
+  res.json(out);
 });
 
 importsRouter.get("/", (_req, res) => {

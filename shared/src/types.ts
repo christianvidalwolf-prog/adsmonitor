@@ -134,6 +134,43 @@ export interface CommitRequest {
   force?: boolean; // saltar validación de solape, decisión explícita
 }
 
+export interface ImportedFactRow extends BaseMetrics {
+  importId: number;
+  reportType: ReportType;
+  marketplace: Marketplace;
+  source: Source;
+  currency: Currency;
+  date: string | null;
+  campaignId: string | null;
+  adGroupId: string | null;
+  keywordId: string | null;
+  productTargetingId: string | null;
+  portfolioName: string | null;
+  campaignName: string | null;
+  campaignType: string | null;
+  adGroupName: string | null;
+  keywordText: string | null;
+  matchType: string | null;
+  searchTerm: string | null;
+  asin: string | null;
+  sku: string | null;
+  productTitle: string | null;
+  status: string | null;
+  bid: number | null;
+  placement: string | null;
+  placementPercentage: number | null;
+  topSearchImpressionShare: number | null;
+  topSearchBidAdjustment: number | null;
+}
+
+export interface CommitResult {
+  importId: number;
+  rowCount: number;
+  forced?: boolean;
+  importMeta: ImportMeta;
+  facts: ImportedFactRow[];
+}
+
 // ── Filas agregadas para tablas ──────────────────────────────────────────
 export interface CampaignRow extends BaseMetrics, DerivedMetrics {
   marketplace: Marketplace;

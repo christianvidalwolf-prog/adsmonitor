@@ -3,16 +3,23 @@ import type {
   ActionInput,
   ActionRecommendation,
   ActionRow,
-  CampaignRow,
+  CommitResult,
   CommitRequest,
-  DashboardData,
-  ImportMeta,
   ImportPreview,
-  KeywordRow,
   RecommendationDataCoverage,
-  SearchTermRow,
   Settings,
 } from "@shared";
+import {
+  buildCampaignRows,
+  buildDashboard,
+  buildKeywordRows,
+  buildSearchTermRows,
+  deleteStoredImport,
+  getStoredSettings,
+  listStoredImports,
+  saveCommittedImport,
+  saveStoredSettings,
+} from "./localData";
 
 export class ApiError extends Error {
   status: number;
@@ -49,23 +56,29 @@ export const api = {
     return request("/api/imports/preview", { method: "POST", body: fd });
   },
   commitImport(body: CommitRequest) {
-    return request<{ importId: number; rowCount: number }>(
+    return request<CommitResult>(
       "/api/imports/commit",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       }
-    );
+    ).then((result) => {
+      saveCommittedImport(result);
+      return result;
+    });
   },
-  listImports: () => request<ImportMeta[]>("/api/imports"),
-  deleteImport: (id: number) =>
-    request(`/api/imports/${id}`, { method: "DELETE" }),
-  dashboard: (m: string[]) => request<DashboardData>(`/api/dashboard${qs(m)}`),
-  campaigns: (m: string[]) => request<CampaignRow[]>(`/api/campaigns${qs(m)}`),
-  keywords: (m: string[]) => request<KeywordRow[]>(`/api/keywords${qs(m)}`),
-  searchTerms: (m: string[]) =>
-    request<SearchTermRow[]>(`/api/search-terms${qs(m)}`),
+  listImports: async () => listStoredImports(),
+  deleteImport: async (id: number) => {
+    deleteStoredImport(id);
+    return { deleted: true as const };
+  },
+  dashboard: async (m: string[]) => buildDashboard(m),
+  campaigns: async (m: string[]) => buildCampaignRows(m),
+  keywords: async (m: string[]) => buildKeywordRows(m),
+  searchTerms: async (m: string[]) => buildSearchTermRows(m),
+  getSettings: async () => getStoredSettings(),
+  saveSettings: async (s: Settings) => saveStoredSettings(s),
   actions: (m: string[]) => request<ActionRow[]>(`/api/actions${qs(m)}`),
   actionRecommendations: (m: string[]) =>
     request<ActionRecommendation[]>(`/api/actions/recommendations${qs(m)}`),
@@ -89,11 +102,4 @@ export const api = {
     request<{ deleted: true }>(`/api/actions/${id}`, { method: "DELETE" }),
   evaluateAction: (id: number) =>
     request<ActionEvaluation>(`/api/actions/${id}/evaluate`, { method: "POST" }),
-  getSettings: () => request<Settings>("/api/settings"),
-  saveSettings: (s: Settings) =>
-    request<Settings>("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(s),
-    }),
 };
