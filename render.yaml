@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: adsmonitor-api
+    runtime: node
+    plan: free
+    buildCommand: npm install --include=dev
+    startCommand: npm run start --workspace=server

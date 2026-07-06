@@ -26,7 +26,14 @@ export default function Campaigns() {
     api.getSettings().then(setSettings).catch(() => {});
   }, []);
   useEffect(() => {
-    api.campaigns(marketplaces).then(setRows).catch((e) => setError(e.message));
+    setError(null);
+    api
+      .campaigns(marketplaces)
+      .then((data) => setRows(Array.isArray(data) ? data : []))
+      .catch((e) => {
+        setRows([]);
+        setError(e.message);
+      });
   }, [marketplaces]);
 
   const portfolios = useMemo(
