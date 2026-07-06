@@ -12,6 +12,8 @@ import {
   type ActionInput,
   type ActionMetrics,
   type ActionRecommendation,
+  type RecommendationDataCoverage,
+  type RecommendationRuleCoverage,
   type ActionResult,
   type ActionRow,
   type ActionSource,
@@ -86,6 +88,16 @@ const PROTOCOL_SOFT_TARGET_ACOS = 0.12;
 const PROTOCOL_HIGH_ACOS = 0.3;
 const PROTOCOL_WASTE_CLICKS = 10;
 const PROTOCOL_GRADUATE_ORDERS = 2;
+
+const PROTOCOL_RULE_LABELS: Record<string, string> = {
+  "R-001": "Waste por clicks sin ventas",
+  "R-002": "Waste por spend sin ventas",
+  "R-003": "Marcas competidoras con CVR bajo",
+  "R-004": "ACoS alto en keyword",
+  "R-005": "Escalar puja con ToS Share bajo",
+  "R-006": "Optimizar placement",
+  "R-007": "Graduar search term a exacta",
+};
 
 function parseMarketplaces(q: unknown): string[] | undefined {
   if (typeof q !== "string" || !q) return undefined;
@@ -566,6 +578,211 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
     .slice(0, 100);
 }
 
+function filteredFactsCount(reportType: string, marketplaces?: string[]): number {
+  let sql = "SELECT COUNT(*) AS n FROM facts WHERE report_type = ?";
+  const params: unknown[] = [reportType];
+  if (marketplaces && marketplaces.length > 0) {
+    sql += ` AND marketplace IN (${marketplaces.map(() => "?").join(",")})`;
+    params.push(...marketplaces);
+  }
+  const row = db.prepare(sql).get(...(params as any[])) as { n: number };
+  return row.n;
+}
+
+function filteredFactsCountWhere(
+  reportType: string,
+  condition: string,
+  marketplaces?: string[]
+): number {
+  let sql = `SELECT COUNT(*) AS n FROM facts WHERE report_type = ? AND ${condition}`;
+  const params: unknown[] = [reportType];
+  if (marketplaces && marketplaces.length > 0) {
+    sql += ` AND marketplace IN (${marketplaces.map(() => "?").join(",")})`;
+    params.push(...marketplaces);
+  }
+  const row = db.prepare(sql).get(...(params as any[])) as { n: number };
+  return row.n;
+}
+
+function importedMarketplaces(marketplaces?: string[]): Marketplace[] {
+  if (marketplaces && marketplaces.length > 0) return marketplaces as Marketplace[];
+  const rows = db
+    .prepare("SELECT DISTINCT marketplace FROM imports ORDER BY marketplace")
+    .all() as { marketplace: Marketplace }[];
+  return rows.map((r) => r.marketplace);
+}
+
+function importsCoverage(marketplaces?: string[]): RecommendationDataCoverage["imports"] {
+  let sql = `SELECT report_type, marketplace, MAX(date_to) AS latest_date_to, SUM(row_count) AS row_count
+             FROM imports`;
+  const params: unknown[] = [];
+  if (marketplaces && marketplaces.length > 0) {
+    sql += ` WHERE marketplace IN (${marketplaces.map(() => "?").join(",")})`;
+    params.push(...marketplaces);
+  }
+  sql += " GROUP BY report_type, marketplace ORDER BY marketplace, report_type";
+  const rows = db.prepare(sql).all(...(params as any[])) as any[];
+  return rows.map((r) => ({
+    reportType: r.report_type,
+    marketplace: r.marketplace,
+    latestDateTo: r.latest_date_to,
+    rowCount: Number(r.row_count ?? 0),
+  }));
+}
+
+function buildRuleCoverage(
+  recommendations: ActionRecommendation[],
+  marketplaces?: string[]
+): RecommendationRuleCoverage[] {
+  const recCounts = new Map<string, number>();
+  for (const rec of recommendations) {
+    recCounts.set(rec.triggerRuleId, (recCounts.get(rec.triggerRuleId) ?? 0) + 1);
+  }
+
+  const searchTermRows = filteredFactsCount("search_terms", marketplaces);
+  const keywordRows = filteredFactsCount("keywords", marketplaces);
+  const keywordRowsWithBid = filteredFactsCountWhere(
+    "keywords",
+    "bid IS NOT NULL",
+    marketplaces
+  );
+  const campaignRows = filteredFactsCount("campaigns", marketplaces);
+  const hasCoreGrowthNaming =
+    filteredFactsCountWhere(
+      "campaigns",
+      "LOWER(COALESCE(campaign_name, '')) LIKE '%core%'",
+      marketplaces
+    ) > 0 &&
+    filteredFactsCountWhere(
+      "campaigns",
+      "LOWER(COALESCE(campaign_name, '')) LIKE '%growth%'",
+      marketplaces
+    ) > 0;
+
+  const rule = (
+    ruleId: string,
+    status: RecommendationRuleCoverage["status"],
+    availableSignals: string[],
+    missingSignals: string[],
+    reason: string
+  ): RecommendationRuleCoverage => ({
+    ruleId,
+    label: PROTOCOL_RULE_LABELS[ruleId],
+    status,
+    availableSignals,
+    missingSignals,
+    recommendationCount: recCounts.get(ruleId) ?? 0,
+    reason,
+  });
+
+  const hasSearchTerms = searchTermRows > 0;
+  const hasKeywords = keywordRows > 0;
+
+  return [
+    rule(
+      "R-001",
+      hasSearchTerms ? "active" : "blocked",
+      hasSearchTerms ? ["Search terms", "Clicks", "Sales"] : [],
+      hasSearchTerms ? [] : ["Search Term Report"],
+      hasSearchTerms
+        ? "Evaluable con search terms importados."
+        : "No hay search terms importados para detectar clicks sin ventas."
+    ),
+    rule(
+      "R-002",
+      hasSearchTerms ? "active" : "blocked",
+      hasSearchTerms ? ["Search terms", "Spend", "Sales", "CPA provisional"] : [],
+      hasSearchTerms ? [] : ["Search Term Report"],
+      hasSearchTerms
+        ? "Evaluable usando el gasto mínimo configurado como CPA provisional."
+        : "No hay search terms importados para detectar spend sin ventas."
+    ),
+    rule(
+      "R-003",
+      hasSearchTerms ? "blocked" : "blocked",
+      hasSearchTerms ? ["Search terms", "CVR"] : [],
+      hasSearchTerms
+        ? ["Lista de marcas competidoras"]
+        : ["Search Term Report", "Lista de marcas competidoras"],
+      hasSearchTerms
+        ? "Falta una lista editable de marcas competidoras; la app no infiere marcas por texto libre."
+        : "Faltan search terms y lista de marcas competidoras."
+    ),
+    rule(
+      "R-004",
+      hasKeywords ? (keywordRowsWithBid > 0 ? "active" : "degraded") : "blocked",
+      hasKeywords
+        ? ["Keywords", "ACoS", ...(keywordRowsWithBid > 0 ? ["Bid actual"] : [])]
+        : [],
+      hasKeywords
+        ? keywordRowsWithBid > 0
+          ? []
+          : ["Bid actual"]
+        : ["Bulk/keyword report"],
+      hasKeywords
+        ? keywordRowsWithBid > 0
+          ? "Evaluable con ACoS y bid actual importado."
+          : "Puede detectar ACoS alto, pero no calcular una puja exacta sin bid actual."
+        : "No hay keywords importadas para evaluar ACoS alto."
+    ),
+    rule(
+      "R-005",
+      "blocked",
+      hasKeywords ? ["Keywords", "ACoS"] : [],
+      hasKeywords
+        ? ["Top of Search Impression Share"]
+        : ["Bulk/keyword report", "Top of Search Impression Share"],
+      "Falta Top of Search Impression Share; sin esa señal la regla literal no se ejecuta."
+    ),
+    rule(
+      "R-006",
+      "blocked",
+      campaignRows > 0 ? ["Campaigns"] : [],
+      campaignRows > 0
+        ? ["Placement ROAS por Top/Product/Rest importado en el modelo"]
+        : ["Bulk con bidding adjustments/placements"],
+      campaignRows > 0
+        ? "El modelo actual guarda campañas agregadas, pero no persiste placement ROAS; la regla queda no evaluable."
+        : "No hay campañas ni placement rows importados para comparar ROAS por placement."
+    ),
+    rule(
+      "R-007",
+      hasSearchTerms ? (hasCoreGrowthNaming ? "active" : "degraded") : "blocked",
+      hasSearchTerms
+        ? ["Search terms", "Orders", ...(hasCoreGrowthNaming ? ["Routing CORE/GROWTH"] : [])]
+        : [],
+      hasSearchTerms
+        ? hasCoreGrowthNaming
+          ? []
+          : ["Routing CORE/GROWTH o mapping de destino"]
+        : ["Search Term Report", "Routing CORE/GROWTH o mapping de destino"],
+      hasSearchTerms
+        ? hasCoreGrowthNaming
+          ? "Evaluable con destino detectable por naming CORE/GROWTH."
+          : "Puede recomendar graduación, pero el destino exacto queda pendiente de mapping."
+        : "No hay search terms importados para detectar términos con pedidos."
+    ),
+  ];
+}
+
+function buildDataCoverage(
+  recommendations: ActionRecommendation[],
+  marketplaces?: string[]
+): RecommendationDataCoverage {
+  const rules = buildRuleCoverage(recommendations, marketplaces);
+  return {
+    marketplaces: importedMarketplaces(marketplaces),
+    imports: importsCoverage(marketplaces),
+    rules,
+    summary: {
+      active: rules.filter((r) => r.status === "active").length,
+      degraded: rules.filter((r) => r.status === "degraded").length,
+      blocked: rules.filter((r) => r.status === "blocked").length,
+      recommendations: recommendations.length,
+    },
+  };
+}
+
 function validateInput(body: Partial<ActionInput>, partial = false): string | null {
   if (!partial || body.entityType !== undefined) {
     if (!body.entityType || !ENTITY_TYPES.includes(body.entityType))
@@ -626,6 +843,12 @@ actionsRouter.get("/", (req, res) => {
 actionsRouter.get("/recommendations", (req, res) => {
   const mkts = parseMarketplaces(req.query.marketplaces);
   res.json(buildRecommendations(mkts));
+});
+
+actionsRouter.get("/recommendations/coverage", (req, res) => {
+  const mkts = parseMarketplaces(req.query.marketplaces);
+  const recommendations = buildRecommendations(mkts);
+  res.json(buildDataCoverage(recommendations, mkts));
 });
 
 actionsRouter.post("/", (req, res) => {

@@ -247,6 +247,35 @@ export interface ActionRecommendation extends ActionInput {
   metrics: ActionMetrics;
 }
 
+export type RecommendationRuleStatus = "active" | "degraded" | "blocked";
+
+export interface RecommendationRuleCoverage {
+  ruleId: string;
+  label: string;
+  status: RecommendationRuleStatus;
+  availableSignals: string[];
+  missingSignals: string[];
+  recommendationCount: number;
+  reason: string;
+}
+
+export interface RecommendationDataCoverage {
+  marketplaces: Marketplace[];
+  imports: {
+    reportType: ReportType;
+    marketplace: Marketplace;
+    latestDateTo: string | null;
+    rowCount: number;
+  }[];
+  rules: RecommendationRuleCoverage[];
+  summary: {
+    active: number;
+    degraded: number;
+    blocked: number;
+    recommendations: number;
+  };
+}
+
 // ── Clasificación ────────────────────────────────────────────────────────
 export type CampaignClass =
   | "winner"

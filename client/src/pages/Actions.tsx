@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   MARKETPLACES,
+  REPORT_TYPE_LABELS,
   type ActionEntityType,
   type ActionInput,
   type ActionRecommendation,
@@ -10,6 +11,9 @@ import {
   type ActionStatus,
   type ActionType,
   type Marketplace,
+  type RecommendationDataCoverage,
+  type RecommendationRuleCoverage,
+  type RecommendationRuleStatus,
 } from "@shared";
 import { api } from "../api";
 import { useMarketplaces } from "../App";
@@ -58,6 +62,18 @@ const STATUS_LABELS: Record<ActionStatus, string> = {
 const SOURCE_LABELS: Record<ActionSource, string> = {
   manual: "Manual",
   recommendation: "Recomendación",
+};
+
+const RULE_STATUS_LABELS: Record<RecommendationRuleStatus, string> = {
+  active: "Activa",
+  degraded: "Degradada",
+  blocked: "Bloqueada",
+};
+
+const RULE_STATUS_STYLE: Record<RecommendationRuleStatus, string> = {
+  active: "border-good/30 bg-good/15 text-good",
+  degraded: "border-warn/30 bg-warn/15 text-warn",
+  blocked: "border-bad/30 bg-bad/10 text-bad",
 };
 
 const RECOMMENDATIONS_PAGE_SIZE = 12;
@@ -132,10 +148,58 @@ function recommendationSearchText(rec: ActionRecommendation) {
     .toLowerCase();
 }
 
+function RuleStatusBadge({ value }: { value: RecommendationRuleStatus }) {
+  return (
+    <span
+      className={`inline-block rounded border px-1.5 py-0.5 text-[11px] font-semibold ${RULE_STATUS_STYLE[value]}`}
+    >
+      {RULE_STATUS_LABELS[value]}
+    </span>
+  );
+}
+
+function compactList(items: string[]) {
+  return items.length ? items.join(" · ") : "–";
+}
+
+function CoverageRuleCard({ rule }: { rule: RecommendationRuleCoverage }) {
+  return (
+    <div className="min-w-0 rounded-lg border border-line bg-panel p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs text-accent">{rule.ruleId}</span>
+            <RuleStatusBadge value={rule.status} />
+          </div>
+          <div className="mt-1 truncate text-sm font-semibold" title={rule.label}>
+            {rule.label}
+          </div>
+        </div>
+        <div className="rounded-md border border-line bg-panel-2 px-2 py-1 text-right">
+          <div className="font-mono text-sm">{fmtInt(rule.recommendationCount)}</div>
+          <div className="text-[10px] text-faint">recs</div>
+        </div>
+      </div>
+      <div className="mt-2 text-xs text-muted">{rule.reason}</div>
+      <div className="mt-2 grid gap-1 text-[11px] text-faint">
+        <div>
+          <span className="text-muted">Disponible:</span>{" "}
+          {compactList(rule.availableSignals)}
+        </div>
+        <div>
+          <span className="text-muted">Falta:</span>{" "}
+          {compactList(rule.missingSignals)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Actions() {
   const { marketplaces } = useMarketplaces();
   const [rows, setRows] = useState<ActionRow[]>([]);
   const [recommendations, setRecommendations] = useState<ActionRecommendation[]>([]);
+  const [coverage, setCoverage] = useState<RecommendationDataCoverage | null>(null);
   const [recommendationsQuery, setRecommendationsQuery] = useState("");
   const [recommendationsPage, setRecommendationsPage] = useState(0);
   const [form, setForm] = useState<ActionInput>(emptyForm);
@@ -144,10 +208,15 @@ export default function Actions() {
   const [saving, setSaving] = useState(false);
 
   const load = () =>
-    Promise.all([api.actions(marketplaces), api.actionRecommendations(marketplaces)])
-      .then(([actions, recs]) => {
+    Promise.all([
+      api.actions(marketplaces),
+      api.actionRecommendations(marketplaces),
+      api.actionRecommendationCoverage(marketplaces),
+    ])
+      .then(([actions, recs, nextCoverage]) => {
         setRows(actions);
         setRecommendations(recs);
+        setCoverage(nextCoverage);
       })
       .catch((e) => setError(e.message));
 
@@ -378,6 +447,51 @@ export default function Actions() {
 
       {error && <Notice kind="error">{error}</Notice>}
 
+      {coverage && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-muted">Cobertura de datos</h2>
+            <div className="flex flex-wrap gap-2 font-mono text-xs text-faint">
+              <span>{coverage.summary.active} activas</span>
+              <span>{coverage.summary.degraded} degradadas</span>
+              <span>{coverage.summary.blocked} bloqueadas</span>
+              <span>{coverage.summary.recommendations} recomendaciones</span>
+            </div>
+          </div>
+
+          {coverage.imports.length > 0 && (
+            <div className="overflow-auto rounded-lg border border-line bg-panel">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Reporte</th>
+                    <th>País</th>
+                    <th>Último periodo</th>
+                    <th className="num">Filas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverage.imports.map((item) => (
+                    <tr key={`${item.marketplace}-${item.reportType}`}>
+                      <td>{REPORT_TYPE_LABELS[item.reportType]}</td>
+                      <td className="font-mono">{item.marketplace}</td>
+                      <td className="font-mono text-xs">{item.latestDateTo ?? "–"}</td>
+                      <td className="num">{fmtInt(item.rowCount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {coverage.rules.map((rule) => (
+              <CoverageRuleCard key={rule.ruleId} rule={rule} />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-muted">Recomendaciones</h2>
@@ -416,7 +530,9 @@ export default function Actions() {
                 <tr>
                   <td colSpan={11} className="py-5 text-center text-muted">
                     {recommendations.length === 0
-                      ? "No hay recomendaciones pendientes para los datos importados."
+                      ? coverage && coverage.summary.blocked > 0
+                        ? "No hay recomendaciones pendientes con las reglas evaluables. Revisa cobertura de datos para ver reglas bloqueadas."
+                        : "No hay recomendaciones pendientes para los datos importados."
                       : "No hay recomendaciones que coincidan con la búsqueda."}
                   </td>
                 </tr>

@@ -9,6 +9,7 @@ import type {
   ImportMeta,
   ImportPreview,
   KeywordRow,
+  RecommendationDataCoverage,
   SearchTermRow,
   Settings,
 } from "@shared";
@@ -68,6 +69,10 @@ export const api = {
   actions: (m: string[]) => request<ActionRow[]>(`/api/actions${qs(m)}`),
   actionRecommendations: (m: string[]) =>
     request<ActionRecommendation[]>(`/api/actions/recommendations${qs(m)}`),
+  actionRecommendationCoverage: (m: string[]) =>
+    request<RecommendationDataCoverage>(
+      `/api/actions/recommendations/coverage${qs(m)}`
+    ),
   createAction: (body: ActionInput) =>
     request<ActionRow>("/api/actions", {
       method: "POST",
