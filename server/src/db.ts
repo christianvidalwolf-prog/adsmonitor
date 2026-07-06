@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_SETTINGS, type Settings } from "../../shared/src";
 
-const DATA_DIR = path.resolve(process.cwd(), "data");
+const DATA_DIR = process.env.VERCEL
+  ? path.join("/tmp", "adsmonitor-data")
+  : path.resolve(process.cwd(), "data");
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 export const db = new DatabaseSync(path.join(DATA_DIR, "app.db"));
