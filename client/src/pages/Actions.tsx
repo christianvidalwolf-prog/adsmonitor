@@ -22,6 +22,7 @@ const ACTION_TYPE_LABELS: Record<ActionType, string> = {
   increase_bid: "Subir bid",
   add_negative: "Añadir negativa",
   move_to_exact: "Mover a exacta",
+  graduate_keyword: "Graduar a CORE",
   change_budget: "Cambiar presupuesto",
   change_campaign_status: "Cambiar campaign status",
 };
@@ -119,6 +120,9 @@ function recommendationSearchText(rec: ActionRecommendation) {
     rec.keywordText,
     rec.matchType,
     rec.searchTerm,
+    rec.triggerRuleId,
+    rec.protocolAction,
+    rec.confidenceLevel,
     rec.reason,
     rec.hypothesis,
     rec.notes,
@@ -395,6 +399,7 @@ export default function Actions() {
             <thead>
               <tr>
                 <th>Acción</th>
+                <th>Regla</th>
                 <th>Entidad</th>
                 <th>Campaña</th>
                 <th>Razón</th>
@@ -409,7 +414,7 @@ export default function Actions() {
             <tbody>
               {visibleRecommendations.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-5 text-center text-muted">
+                  <td colSpan={11} className="py-5 text-center text-muted">
                     {recommendations.length === 0
                       ? "No hay recomendaciones pendientes para los datos importados."
                       : "No hay recomendaciones que coincidan con la búsqueda."}
@@ -418,7 +423,18 @@ export default function Actions() {
               )}
               {recommendationsPageRows.map((rec) => (
                 <tr key={rec.id}>
-                  <td>{ACTION_TYPE_LABELS[rec.actionType]}</td>
+                  <td>
+                    <div className="font-medium">{ACTION_TYPE_LABELS[rec.actionType]}</div>
+                    <div className="text-xs text-faint">{rec.protocolAction}</div>
+                  </td>
+                  <td>
+                    <span className="font-mono text-xs text-accent">
+                      {rec.triggerRuleId}
+                    </span>
+                    <div className="text-[10px] text-faint">
+                      {rec.confidenceLevel}
+                    </div>
+                  </td>
                   <td>
                     <div className="max-w-72">
                       <div className="truncate font-medium" title={rec.searchTerm ?? rec.keywordText ?? rec.campaignName ?? ""}>

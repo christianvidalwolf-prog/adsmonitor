@@ -30,6 +30,7 @@ const ACTION_TYPES: ActionType[] = [
   "increase_bid",
   "add_negative",
   "move_to_exact",
+  "graduate_keyword",
   "change_budget",
   "change_campaign_status",
 ];
@@ -80,6 +81,11 @@ interface RecommendationFactRow extends FactMetricRow {
   search_term: string | null;
   search_term_norm: string | null;
 }
+
+const PROTOCOL_SOFT_TARGET_ACOS = 0.12;
+const PROTOCOL_HIGH_ACOS = 0.3;
+const PROTOCOL_WASTE_CLICKS = 10;
+const PROTOCOL_GRADUATE_ORDERS = 2;
 
 function parseMarketplaces(q: unknown): string[] | undefined {
   if (typeof q !== "string" || !q) return undefined;
@@ -406,30 +412,12 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
   for (const k of keywords) {
     const metrics = asMetrics(k);
     const implementedAt = recommendationDate(k.marketplace, "keywords");
-    if (k.spend >= settings.minSpendPause && k.sales === 0) {
+    if (metrics.acos !== null && metrics.acos > PROTOCOL_HIGH_ACOS) {
       out.push({
-        id: `kw-pause|${k.marketplace}|${k.campaignName}|${k.keywordText}|${k.matchType}`,
-        source: "recommendation",
-        entityType: "keyword",
-        marketplace: k.marketplace,
-        campaignName: k.campaignName,
-        adGroupName: k.adGroupName,
-        keywordText: k.keywordText,
-        matchType: k.matchType,
-        actionType: "pause_keyword",
-        owner: "",
-        hypothesis: "Reducir gasto sin ventas pausando la keyword.",
-        notes: "",
-        implementedAt,
-        baselineWindowDays: 7,
-        evaluationWindowDays: 7,
-        status: "implemented",
-        reason: `Gasto ${k.spend.toFixed(2)} sin ventas.`,
-        metrics,
-      });
-    } else if (metrics.acos !== null && metrics.acos > settings.targetAcosGlobal) {
-      out.push({
-        id: `kw-bid-down|${k.marketplace}|${k.campaignName}|${k.keywordText}|${k.matchType}`,
+        id: `R-004|${k.marketplace}|${k.campaignName}|${k.keywordText}|${k.matchType}`,
+        triggerRuleId: "R-004",
+        protocolAction: "REDUCE_BID",
+        confidenceLevel: "HIGH",
         source: "recommendation",
         entityType: "keyword",
         marketplace: k.marketplace,
@@ -439,34 +427,19 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
         matchType: k.matchType,
         actionType: "decrease_bid",
         owner: "",
-        hypothesis: "Bajar ACOS reduciendo puja.",
-        notes: "",
+        hypothesis: "Mitigar costes hacia ACoS objetivo reduciendo la puja un 15%-25%.",
+        notes: "Protocolo Ads 2026.1: R-004. No se aplican R-005/R-006 porque faltan Top of Search Share y placement ROAS.",
         implementedAt,
         baselineWindowDays: 7,
         evaluationWindowDays: 7,
         status: "implemented",
-        reason: `ACOS por encima del target (${(metrics.acos * 100).toFixed(1)}%).`,
-        metrics,
-      });
-    } else if (metrics.acos !== null && metrics.acos <= settings.targetAcosGlobal && k.orders > 0) {
-      out.push({
-        id: `kw-bid-up|${k.marketplace}|${k.campaignName}|${k.keywordText}|${k.matchType}`,
-        source: "recommendation",
-        entityType: "keyword",
-        marketplace: k.marketplace,
-        campaignName: k.campaignName,
-        adGroupName: k.adGroupName,
-        keywordText: k.keywordText,
-        matchType: k.matchType,
-        actionType: "increase_bid",
-        owner: "",
-        hypothesis: "Aumentar ventas escalando una keyword eficiente.",
-        notes: "",
-        implementedAt,
-        baselineWindowDays: 7,
-        evaluationWindowDays: 7,
-        status: "implemented",
-        reason: `ACOS dentro de target con ${k.orders.toFixed(0)} orders.`,
+        reason: `R-004: ACoS ${(metrics.acos * 100).toFixed(1)}% > 30%. Reducir bid 15%-25% sobre CPC/bid actual.`,
+        actionDetails: {
+          recommended_bid_change_pct_min: -25,
+          recommended_bid_change_pct_max: -15,
+          soft_reference_acos: PROTOCOL_SOFT_TARGET_ACOS,
+          current_acos: metrics.acos,
+        },
         metrics,
       });
     }
@@ -493,9 +466,12 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
   for (const s of searchTerms) {
     const metrics = asMetrics(s);
     const implementedAt = recommendationDate(s.marketplace, "search_terms");
-    if (s.spend >= settings.minSpendPause && s.sales === 0) {
+    if (s.clicks >= PROTOCOL_WASTE_CLICKS && s.sales === 0) {
       out.push({
-        id: `st-negative|${s.marketplace}|${s.campaignName}|${s.searchTerm}`,
+        id: `R-001|${s.marketplace}|${s.campaignName}|${s.adGroupName}|${s.searchTerm}`,
+        triggerRuleId: "R-001",
+        protocolAction: "NEGATE_EXACT",
+        confidenceLevel: "HIGH",
         source: "recommendation",
         entityType: "search_term",
         marketplace: s.marketplace,
@@ -506,18 +482,25 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
         searchTerm: s.searchTerm,
         actionType: "add_negative",
         owner: "",
-        hypothesis: "Reducir gasto sin ventas añadiendo el search term como negativo.",
-        notes: "",
+        hypothesis: "Reducir wasted spend añadiendo el search term como negativo exacto en el origen.",
+        notes: "Protocolo Ads 2026.1: R-001. Ventana semanal 7-14 días.",
         implementedAt,
         baselineWindowDays: 7,
         evaluationWindowDays: 7,
         status: "implemented",
-        reason: `Search term con gasto ${s.spend.toFixed(2)} y cero ventas.`,
+        reason: `R-001: ${s.clicks.toFixed(0)} clicks y 0 ventas. Negativizar exact en ad group/campaña origen.`,
+        actionDetails: {
+          negative_match_type: "Exact",
+          apply_in_origin: true,
+        },
         metrics,
       });
-    } else if (s.sales > 0 && s.matchType?.toLowerCase() !== "exact") {
+    } else if (s.spend >= settings.minSpendPause && s.sales === 0) {
       out.push({
-        id: `st-exact|${s.marketplace}|${s.campaignName}|${s.searchTerm}`,
+        id: `R-002|${s.marketplace}|${s.campaignName}|${s.adGroupName}|${s.searchTerm}`,
+        triggerRuleId: "R-002",
+        protocolAction: "NEGATE_EXACT",
+        confidenceLevel: "HIGH",
         source: "recommendation",
         entityType: "search_term",
         marketplace: s.marketplace,
@@ -526,68 +509,51 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
         keywordText: s.keywordText,
         matchType: s.matchType,
         searchTerm: s.searchTerm,
-        actionType: "move_to_exact",
+        actionType: "add_negative",
         owner: "",
-        hypothesis: "Subir ventas capturando un search term con ventas como exacta.",
-        notes: "",
+        hypothesis: "Cortar gasto sin ventas cuando spend supera el CPA provisional configurado.",
+        notes: "Protocolo Ads 2026.1: R-002. La app usa Settings > gasto mínimo antes de sugerir pausa como CPA provisional mientras no haya margen real por SKU.",
         implementedAt,
         baselineWindowDays: 7,
         evaluationWindowDays: 7,
         status: "implemented",
-        reason: `Search term con ${s.sales.toFixed(2)} en ventas y match no exacto.`,
+        reason: `R-002: spend ${s.spend.toFixed(2)} >= CPA provisional ${settings.minSpendPause} y 0 ventas.`,
+        actionDetails: {
+          negative_match_type: "Exact",
+          apply_in_origin: true,
+          provisional_cpa: settings.minSpendPause,
+        },
         metrics,
       });
-    }
-  }
-
-  const campaignFacts = db
-    .prepare(`SELECT * FROM facts WHERE report_type = 'campaigns'${mktSql}`)
-    .all(...(mktParams as any[])) as unknown as RecommendationFactRow[];
-  const campaigns = groupRecommendationRows(
-    campaignFacts,
-    (r) => (r.campaign_name ? `${r.marketplace}|${r.campaign_name}` : null),
-    (r) => ({
-      marketplace: r.marketplace,
-      campaignName: r.campaign_name,
-    })
-  );
-  for (const c of campaigns) {
-    const metrics = asMetrics(c);
-    const implementedAt = recommendationDate(c.marketplace, "campaigns");
-    if (c.spend >= settings.minSpendPause && c.sales === 0) {
+    } else if (s.orders >= PROTOCOL_GRADUATE_ORDERS && s.matchType?.toLowerCase() !== "exact") {
       out.push({
-        id: `campaign-status|${c.marketplace}|${c.campaignName}`,
+        id: `R-007|${s.marketplace}|${s.campaignName}|${s.adGroupName}|${s.searchTerm}`,
+        triggerRuleId: "R-007",
+        protocolAction: "GRADUATE_KEYWORD",
+        confidenceLevel: "HIGH",
         source: "recommendation",
-        entityType: "campaign",
-        marketplace: c.marketplace,
-        campaignName: c.campaignName,
-        actionType: "change_campaign_status",
+        entityType: "search_term",
+        marketplace: s.marketplace,
+        campaignName: s.campaignName,
+        adGroupName: s.adGroupName,
+        keywordText: s.keywordText,
+        matchType: s.matchType,
+        searchTerm: s.searchTerm,
+        actionType: "graduate_keyword",
         owner: "",
-        hypothesis: "Reducir gasto sin ventas cambiando el estado de la campaña.",
-        notes: "",
+        hypothesis: "Graduar el search term a CORE exact y negativizar exact en GROWTH para aislar tráfico.",
+        notes: "Protocolo Ads 2026.1: R-007. Requiere validar destino CORE y duplicados antes de ejecutar fuera de la app.",
         implementedAt,
         baselineWindowDays: 7,
         evaluationWindowDays: 7,
         status: "implemented",
-        reason: `Campaña con gasto ${c.spend.toFixed(2)} y cero ventas.`,
-        metrics,
-      });
-    } else if (metrics.acos !== null && metrics.acos <= settings.targetAcosGlobal && c.orders > 0) {
-      out.push({
-        id: `campaign-budget|${c.marketplace}|${c.campaignName}`,
-        source: "recommendation",
-        entityType: "campaign",
-        marketplace: c.marketplace,
-        campaignName: c.campaignName,
-        actionType: "change_budget",
-        owner: "",
-        hypothesis: "Aumentar ventas dando más presupuesto a una campaña eficiente.",
-        notes: "",
-        implementedAt,
-        baselineWindowDays: 7,
-        evaluationWindowDays: 7,
-        status: "implemented",
-        reason: `Campaña dentro de target ACOS con ${c.orders.toFixed(0)} orders.`,
+        reason: `R-007: search term con ${s.orders.toFixed(0)} orders. Crear exact en CORE y añadir negativo exact en origen.`,
+        actionDetails: {
+          create_exact_in_core: true,
+          add_as_negative_exact_in_origin: true,
+          destination_required: "CORE exact campaign/ad group",
+          recommended_initial_bid: metrics.cpc,
+        },
         metrics,
       });
     }

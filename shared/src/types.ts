@@ -162,6 +162,7 @@ export type ActionType =
   | "increase_bid"
   | "add_negative"
   | "move_to_exact"
+  | "graduate_keyword"
   | "change_budget"
   | "change_campaign_status";
 
@@ -238,7 +239,11 @@ export interface ActionInput {
 
 export interface ActionRecommendation extends ActionInput {
   id: string;
+  triggerRuleId: string;
+  protocolAction: string;
+  confidenceLevel: "HIGH" | "MEDIUM" | "LOW";
   reason: string;
+  actionDetails?: Record<string, unknown>;
   metrics: ActionMetrics;
 }
 
