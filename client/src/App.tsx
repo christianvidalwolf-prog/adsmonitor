@@ -1,5 +1,5 @@
 import { Component, createContext, useContext, useState, type ReactNode } from "react";
-import { HashRouter, NavLink, Route, Routes } from "react-router-dom";
+import { HashRouter, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import type { Marketplace } from "@shared";
 import { MarketplaceFilter } from "./components/ui";
 import Dashboard from "./pages/Dashboard";
@@ -49,6 +49,23 @@ class RouteErrorBoundary extends Component<
     }
     return this.props.children;
   }
+}
+
+function RouteSurface() {
+  const location = useLocation();
+  return (
+    <RouteErrorBoundary key={location.pathname}>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/campaigns" element={<Campaigns />} />
+        <Route path="/keywords" element={<Keywords />} />
+        <Route path="/search-terms" element={<SearchTerms />} />
+        <Route path="/actions" element={<Actions />} />
+        <Route path="/imports" element={<Imports />} />
+        <Route path="/settings" element={<SettingsPage />} />
+      </Routes>
+    </RouteErrorBoundary>
+  );
 }
 
 export default function App() {
@@ -110,17 +127,7 @@ export default function App() {
               />
             </header>
             <main className="min-h-0 flex-1 overflow-auto p-5">
-              <RouteErrorBoundary>
-                <Routes>
-                  <Route path="/" element={<Dashboard />} />
-                  <Route path="/campaigns" element={<Campaigns />} />
-                  <Route path="/keywords" element={<Keywords />} />
-                  <Route path="/search-terms" element={<SearchTerms />} />
-                  <Route path="/actions" element={<Actions />} />
-                  <Route path="/imports" element={<Imports />} />
-                  <Route path="/settings" element={<SettingsPage />} />
-                </Routes>
-              </RouteErrorBoundary>
+              <RouteSurface />
             </main>
           </div>
         </div>
