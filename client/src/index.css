@@ -1,0 +1,85 @@
+@import "@fontsource-variable/archivo";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Archivo Variable", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bg: #0d1117;
+  --color-panel: #151b23;
+  --color-panel-2: #1b2430;
+  --color-line: #26303c;
+  --color-ink: #e8eef4;
+  --color-muted: #8a97a5;
+  --color-faint: #5a6a7a;
+
+  --color-accent: #f5a524; /* ámbar señal — guiño Amazon sin naranja corporativo */
+  --color-good: #34d399;
+  --color-warn: #fbbf24;
+  --color-bad: #f87171;
+  --color-info: #60a5fa;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-bg text-ink font-sans antialiased;
+  background-image: radial-gradient(
+      ellipse 80% 50% at 20% -10%,
+      rgba(245, 165, 36, 0.05),
+      transparent
+    ),
+    radial-gradient(ellipse 60% 40% at 90% 0%, rgba(96, 165, 250, 0.04), transparent);
+}
+
+::selection {
+  background: rgba(245, 165, 36, 0.3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Tablas densas de datos */
+.data-table {
+  @apply w-full text-sm;
+}
+.data-table th {
+  @apply sticky top-0 z-10 bg-panel-2 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-muted select-none whitespace-nowrap;
+}
+.data-table th.num,
+.data-table td.num {
+  @apply text-right font-mono tabular-nums;
+}
+.data-table td {
+  @apply border-t border-line px-3 py-1.5 whitespace-nowrap;
+}
+.data-table tbody tr {
+  @apply transition-colors;
+}
+.data-table tbody tr:hover {
+  @apply bg-panel-2;
+}
+
+input,
+select,
+textarea {
+  @apply bg-panel-2 border border-line rounded-md px-2.5 py-1.5 text-sm text-ink outline-none;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
