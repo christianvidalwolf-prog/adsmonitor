@@ -19,6 +19,7 @@ export interface ParsedSheet {
   name: string;
   headers: string[];
   rows: Record<string, unknown>[];
+  headerRowIndex: number;
 }
 
 export function parseWorkbook(buffer: Buffer): ParsedSheet[] {
@@ -43,16 +44,119 @@ export function parseWorkbook(buffer: Buffer): ParsedSheet[] {
   }
   const sheets: ParsedSheet[] = [];
   for (const name of wb.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(
-      wb.Sheets[name],
-      { defval: null, raw: true }
-    );
-    if (rows.length === 0) continue;
-    sheets.push({ name, headers: Object.keys(rows[0]), rows });
+    const parsed = parseSheet(name, wb.Sheets[name]);
+    if (parsed) sheets.push(parsed);
   }
   if (sheets.length === 0)
     throw new Error("El fichero no contiene filas de datos");
   return sheets;
+}
+
+function parseSheet(name: string, sheet: XLSX.WorkSheet): ParsedSheet | null {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: null,
+    raw: true,
+    blankrows: false,
+  });
+  if (matrix.length === 0) return null;
+
+  const headerRowIndex = findHeaderRow(matrix);
+  if (headerRowIndex === null) return null;
+
+  const headers = uniqueHeaders(matrix[headerRowIndex]);
+  const rows = matrix
+    .slice(headerRowIndex + 1)
+    .map((row) => rowToObject(headers, row))
+    .filter((row) =>
+      Object.values(row).some((v) => v !== null && v !== undefined && v !== "")
+    );
+  if (rows.length === 0) return null;
+  return { name, headers, rows, headerRowIndex };
+}
+
+function findHeaderRow(matrix: unknown[][]): number | null {
+  let best: { index: number; score: number } | null = null;
+  const maxRows = Math.min(matrix.length, 50);
+  for (let i = 0; i < maxRows; i++) {
+    const headers = uniqueHeaders(matrix[i]);
+    if (headers.length < 2) continue;
+    const sampleRows = matrix
+      .slice(i + 1, i + 101)
+      .map((row) => rowToObject(headers, row));
+    const score = headerScore(headers, sampleRows);
+    if (score > 0 && (!best || score > best.score)) {
+      best = { index: i, score };
+    }
+  }
+  return best?.index ?? null;
+}
+
+function headerScore(
+  headers: string[],
+  sampleRows: Record<string, unknown>[]
+): number {
+  const { mapping } = mapHeaders(headers, sampleRows);
+  const fields = new Set(mapping.values());
+  const normHeaders = new Set(headers.map((h) => normalizeHeader(h)));
+  const hasEntity = [...normHeaders].some((h) =>
+    ["entity", "entidad", "entita", "entite"].includes(h)
+  );
+  const hasBulkShape =
+    hasEntity && (fields.has("campaignName") || fields.has("campaignId"));
+  const reportType = detectReportType(fields);
+  const identityFields: CanonicalField[] = [
+    "campaignId",
+    "campaignName",
+    "keywordText",
+    "searchTerm",
+    "asin",
+    "sku",
+    "placement",
+    "topSearchImpressionShare",
+  ];
+  const metricFields: CanonicalField[] = [
+    "impressions",
+    "clicks",
+    "spend",
+    "sales",
+    "orders",
+    "units",
+  ];
+  const identityScore = identityFields.filter((f) => fields.has(f)).length;
+  const metricScore = metricFields.filter((f) => fields.has(f)).length;
+  if (!reportType && !hasBulkShape) return 0;
+  if (!hasBulkShape && identityScore < 1) return 0;
+  if (!hasBulkShape && metricScore === 0) return 0;
+  return (
+    identityScore * 10 +
+    metricScore * 3 +
+    (reportType ? 8 : 0) +
+    (hasBulkShape ? 12 : 0) +
+    Math.min(headers.length, 40) / 10
+  );
+}
+
+function uniqueHeaders(row: unknown[]): string[] {
+  const seen = new Map<string, number>();
+  return row.map((cell, index) => {
+    const raw = cell === null || cell === undefined ? "" : String(cell).trim();
+    const base = raw || `__EMPTY_${index}`;
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count === 0 ? base : `${base}__${count}`;
+  });
+}
+
+function rowToObject(
+  headers: string[],
+  row: unknown[]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  headers.forEach((header, index) => {
+    out[header] = row[index] ?? null;
+  });
+  return out;
 }
 
 export interface NormalizedRow {
@@ -275,12 +379,10 @@ const BULK_ENTITY_SUBSETS: [entity: string, type: ReportType, label: string][] =
 export function buildCandidates(sheets: ParsedSheet[]): ImportCandidate[] {
   const out: ImportCandidate[] = [];
   const workbookHasBulkEntitySheet = sheets.some((sheet) =>
-    sheet.headers.some((h) => normalizeHeader(h) === "entity")
+    sheet.headers.some(isEntityHeader)
   );
   for (const sheet of sheets) {
-    const entityHeader = sheet.headers.find(
-      (h) => normalizeHeader(h) === "entity"
-    );
+    const entityHeader = sheet.headers.find(isEntityHeader);
     if (entityHeader) {
       // Hoja de bulksheet: un candidato por entidad relevante. Se ignoran
       // "Ad group" y "Product targeting" para KPIs generales; "Bidding
@@ -331,6 +433,12 @@ export function buildCandidates(sheets: ParsedSheet[]): ImportCandidate[] {
     return b.analysis.normalized.length - a.analysis.normalized.length;
   });
   return merged;
+}
+
+function isEntityHeader(header: string): boolean {
+  return ["entity", "entidad", "entita", "entite"].includes(
+    normalizeHeader(header)
+  );
 }
 
 function mergeByReportType(candidates: ImportCandidate[]): ImportCandidate[] {
