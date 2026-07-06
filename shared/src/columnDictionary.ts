@@ -331,12 +331,12 @@ export function detectReportType(
 
 /** Campos sin los cuales una importación no tiene sentido */
 export const REQUIRED_FIELDS: Record<ReportType, CanonicalField[]> = {
-  campaigns: ["campaignName", "spend"],
-  keywords: ["campaignName", "keywordText", "spend"],
+  campaigns: ["campaignName"],
+  keywords: ["campaignName", "keywordText"],
   search_terms: ["campaignName", "searchTerm", "spend"],
-  products: ["campaignName", "asin", "spend"],
+  products: ["campaignName"],
   portfolios: ["portfolioName"],
-  placements: ["campaignId", "placement", "spend"],
+  placements: ["campaignId", "placement"],
   top_search: ["campaignName", "topSearchImpressionShare"],
 };
 
@@ -344,6 +344,7 @@ export const REQUIRED_FIELDS: Record<ReportType, CanonicalField[]> = {
 export const OPTIONAL_METRIC_FIELDS: CanonicalField[] = [
   "impressions",
   "clicks",
+  "spend",
   "sales",
   "orders",
   "units",

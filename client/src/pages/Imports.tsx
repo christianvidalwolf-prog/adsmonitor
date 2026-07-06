@@ -136,8 +136,8 @@ export default function Imports() {
           Arrastra o haz clic para subir un reporte de Amazon Ads
         </div>
         <div className="mt-1 text-xs text-faint">
-          Excel o CSV · Campaigns, Keywords, Search Terms, Advertised Products ·
-          headers en ES/EN/DE/FR/IT
+          Excel o CSV · Bulk, Search Terms, Top Search, Placements · headers en
+          ES/EN/DE/FR/IT
         </div>
       </label>
 

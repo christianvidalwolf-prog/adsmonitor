@@ -54,7 +54,7 @@ importsRouter.post("/preview", upload.single("file"), (req, res) => {
     if (candidates.length === 0) {
       return res.status(422).json({
         error:
-          "No se reconoce el tipo de reporte en ninguna hoja: no se han encontrado columnas de campaña, keyword, search term ni ASIN junto a una columna de gasto.",
+          "No se reconoce el tipo de reporte en ninguna hoja: no se han encontrado columnas reconocibles de campaña, keyword, search term, ASIN/SKU, placement o Top of Search.",
       });
     }
     const uploadId = crypto.randomUUID();
