@@ -43,12 +43,24 @@ export function parseWorkbook(buffer: Buffer): ParsedSheet[] {
     wb = XLSX.read(text, { type: "string", raw: true });
   }
   const sheets: ParsedSheet[] = [];
+  let recognizedEmptySheets = 0;
   for (const name of wb.SheetNames) {
     const parsed = parseSheet(name, wb.Sheets[name]);
-    if (parsed) sheets.push(parsed);
+    if (parsed) {
+      if (isSupportSheet(parsed)) continue;
+      sheets.push(parsed);
+      continue;
+    }
+    if (sheetLooksRecognizableButEmpty(wb.Sheets[name])) recognizedEmptySheets++;
   }
-  if (sheets.length === 0)
+  if (sheets.length === 0) {
+    if (recognizedEmptySheets > 0) {
+      throw new Error(
+        "El fichero parece un export vacio: contiene cabeceras reconocibles de Amazon Ads, pero ninguna fila de datos. Reexporta el bulk con campanas, keywords o product ads visibles."
+      );
+    }
     throw new Error("El fichero no contiene filas de datos");
+  }
   return sheets;
 }
 
@@ -87,6 +99,38 @@ function parseSheetLegacy(
   const headers = Object.keys(rows[0]);
   if (headers.length === 0) return null;
   return { name, headers, rows, headerRowIndex: 0 };
+}
+
+function isSupportSheet(sheet: ParsedSheet): boolean {
+  if (/^config$/i.test(sheet.name)) return true;
+  if (/^sheet\d+$/i.test(sheet.name) && sheet.headers[0] === "Version") return true;
+  return false;
+}
+
+function sheetLooksRecognizableButEmpty(sheet: XLSX.WorkSheet): boolean {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
+    header: 1,
+    defval: null,
+    raw: true,
+    blankrows: false,
+  });
+  if (matrix.length === 0) return false;
+  const maxRows = Math.min(matrix.length, 10);
+  for (let i = 0; i < maxRows; i++) {
+    const row = matrix[i];
+    if (!Array.isArray(row) || row.length < 2) continue;
+    const headers = uniqueHeaders(row);
+    const { mapping } = mapHeaders(headers, []);
+    const fields = new Set(mapping.values());
+    const normHeaders = new Set(headers.map((h) => normalizeHeader(h)));
+    const hasEntity = [...normHeaders].some((h) =>
+      ["entity", "entidad", "entita", "entite"].includes(h)
+    );
+    if (detectReportType(fields) || (hasEntity && fields.has("campaignId"))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function findHeaderRow(matrix: unknown[][]): number | null {
