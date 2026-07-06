@@ -115,11 +115,13 @@ importsRouter.post("/commit", (req, res) => {
   );
   const insertFact = db.prepare(
     `INSERT INTO facts (import_id, report_type, marketplace, source, currency, date,
+       campaign_id, ad_group_id, keyword_id, product_targeting_id,
        portfolio_name, campaign_name, campaign_type, ad_group_name,
        keyword_text, keyword_norm, match_type, search_term, search_term_norm,
-       asin, sku, product_title, status, bid,
+       asin, sku, product_title, status, bid, placement, placement_percentage,
+       top_search_impression_share, top_search_bid_adjustment,
        impressions, clicks, spend, sales, orders, units)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const importId = transaction(() => {
@@ -144,6 +146,10 @@ importsRouter.post("/commit", (req, res) => {
         body.source,
         currency,
         r.date,
+        r.campaignId,
+        r.adGroupId,
+        r.keywordId,
+        r.productTargetingId,
         r.portfolioName,
         r.campaignName,
         r.campaignType,
@@ -158,6 +164,10 @@ importsRouter.post("/commit", (req, res) => {
         r.productTitle,
         r.status,
         r.bid,
+        r.placement,
+        r.placementPercentage,
+        r.topSearchImpressionShare,
+        r.topSearchBidAdjustment,
         r.impressions,
         r.clicks,
         r.spend,

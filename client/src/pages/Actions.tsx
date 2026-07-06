@@ -27,6 +27,7 @@ const ACTION_TYPE_LABELS: Record<ActionType, string> = {
   add_negative: "Añadir negativa",
   move_to_exact: "Mover a exacta",
   graduate_keyword: "Graduar a CORE",
+  increase_placement_mod: "Subir placement",
   change_budget: "Cambiar presupuesto",
   change_campaign_status: "Cambiar campaign status",
 };

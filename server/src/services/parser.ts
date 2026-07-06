@@ -57,6 +57,10 @@ export function parseWorkbook(buffer: Buffer): ParsedSheet[] {
 
 export interface NormalizedRow {
   date: string | null;
+  campaignId: string | null;
+  adGroupId: string | null;
+  keywordId: string | null;
+  productTargetingId: string | null;
   portfolioName: string | null;
   campaignName: string | null;
   campaignType: string | null;
@@ -69,6 +73,10 @@ export interface NormalizedRow {
   productTitle: string | null;
   status: string | null;
   bid: number | null;
+  placement: string | null;
+  placementPercentage: number | null;
+  topSearchImpressionShare: number | null;
+  topSearchBidAdjustment: number | null;
   currency: string | null;
   impressions: number;
   clicks: number;
@@ -79,6 +87,10 @@ export interface NormalizedRow {
 }
 
 const TEXT_FIELDS: CanonicalField[] = [
+  "campaignId",
+  "adGroupId",
+  "keywordId",
+  "productTargetingId",
   "portfolioName",
   "campaignName",
   "campaignType",
@@ -90,6 +102,7 @@ const TEXT_FIELDS: CanonicalField[] = [
   "sku",
   "productTitle",
   "status",
+  "placement",
   "currency",
 ];
 
@@ -158,9 +171,13 @@ export function analyze(
 
   for (const raw of dataRows) {
     const row: NormalizedRow = {
-      date: null, portfolioName: null, campaignName: null, campaignType: null,
+      date: null,
+      campaignId: null, adGroupId: null, keywordId: null, productTargetingId: null,
+      portfolioName: null, campaignName: null, campaignType: null,
       adGroupName: null, keywordText: null, matchType: null, searchTerm: null,
       asin: null, sku: null, productTitle: null, status: null, bid: null,
+      placement: null, placementPercentage: null,
+      topSearchImpressionShare: null, topSearchBidAdjustment: null,
       currency: null,
       impressions: 0, clicks: 0, spend: 0, sales: 0, orders: 0, units: 0,
     };
@@ -181,6 +198,15 @@ export function analyze(
     }
     const bidH = fieldToHeader.get("bid");
     if (bidH !== undefined) row.bid = parseNumber(raw[bidH]);
+    const placementPercentageH = fieldToHeader.get("placementPercentage");
+    if (placementPercentageH !== undefined)
+      row.placementPercentage = parseNumber(raw[placementPercentageH]);
+    const topSearchShareH = fieldToHeader.get("topSearchImpressionShare");
+    if (topSearchShareH !== undefined)
+      row.topSearchImpressionShare = parseNumber(raw[topSearchShareH]);
+    const topSearchBidAdjustmentH = fieldToHeader.get("topSearchBidAdjustment");
+    if (topSearchBidAdjustmentH !== undefined)
+      row.topSearchBidAdjustment = parseNumber(raw[topSearchBidAdjustmentH]);
     const dateH = fieldToHeader.get("date");
     if (dateH !== undefined) {
       row.date = parseDate(raw[dateH]);
@@ -193,7 +219,7 @@ export function analyze(
     // saltar filas totalmente vacías
     const hasContent =
       row.campaignName || row.keywordText || row.searchTerm || row.asin ||
-      row.portfolioName;
+      row.portfolioName || row.campaignId || row.placement;
     if (hasContent) normalized.push(row);
   }
 
@@ -241,20 +267,24 @@ export interface ImportCandidate {
 
 const BULK_ENTITY_SUBSETS: [entity: string, type: ReportType, label: string][] = [
   ["campaign", "campaigns", "Campaigns"],
+  ["bidding adjustment", "placements", "Placements"],
   ["keyword", "keywords", "Keywords"],
   ["product ad", "products", "Advertised Products"],
 ];
 
 export function buildCandidates(sheets: ParsedSheet[]): ImportCandidate[] {
   const out: ImportCandidate[] = [];
+  const workbookHasBulkEntitySheet = sheets.some((sheet) =>
+    sheet.headers.some((h) => normalizeHeader(h) === "entity")
+  );
   for (const sheet of sheets) {
     const entityHeader = sheet.headers.find(
       (h) => normalizeHeader(h) === "entity"
     );
     if (entityHeader) {
       // Hoja de bulksheet: un candidato por entidad relevante. Se ignoran
-      // "Bidding adjustment", "Ad group" y "Product targeting" (sus métricas
-      // ya están contenidas en las de campaña/keyword).
+      // "Ad group" y "Product targeting" para KPIs generales; "Bidding
+      // adjustment" se importa aparte para evaluar placement ROAS.
       for (const [entity, type, label] of BULK_ENTITY_SUBSETS) {
         const rows = sheet.rows.filter(
           (r) =>
@@ -274,6 +304,9 @@ export function buildCandidates(sheets: ParsedSheet[]): ImportCandidate[] {
         });
       }
     } else {
+      if (workbookHasBulkEntitySheet && /search term report/i.test(sheet.name)) {
+        continue;
+      }
       const analysis = analyze(sheet.headers, sheet.rows, {});
       if (!analysis.reportType || analysis.missingRequired.length > 0) continue;
       out.push({

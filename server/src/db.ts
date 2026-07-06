@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS facts (
   source TEXT NOT NULL,
   currency TEXT NOT NULL,
   date TEXT,
+  campaign_id TEXT,
+  ad_group_id TEXT,
+  keyword_id TEXT,
+  product_targeting_id TEXT,
   portfolio_name TEXT,
   campaign_name TEXT,
   campaign_type TEXT,
@@ -48,6 +52,10 @@ CREATE TABLE IF NOT EXISTS facts (
   product_title TEXT,
   status TEXT,
   bid REAL,
+  placement TEXT,
+  placement_percentage REAL,
+  top_search_impression_share REAL,
+  top_search_bid_adjustment REAL,
   impressions REAL NOT NULL DEFAULT 0,
   clicks REAL NOT NULL DEFAULT 0,
   spend REAL NOT NULL DEFAULT 0,
@@ -96,6 +104,24 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 `);
+
+function ensureFactsColumn(name: string, definition: string): void {
+  const cols = db.prepare("PRAGMA table_info(facts)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === name)) {
+    db.exec(`ALTER TABLE facts ADD COLUMN ${name} ${definition}`);
+  }
+}
+
+ensureFactsColumn("campaign_id", "TEXT");
+ensureFactsColumn("ad_group_id", "TEXT");
+ensureFactsColumn("keyword_id", "TEXT");
+ensureFactsColumn("product_targeting_id", "TEXT");
+ensureFactsColumn("placement", "TEXT");
+ensureFactsColumn("placement_percentage", "REAL");
+ensureFactsColumn("top_search_impression_share", "REAL");
+ensureFactsColumn("top_search_bid_adjustment", "REAL");
+
+db.exec("CREATE INDEX IF NOT EXISTS idx_facts_campaign_id ON facts(campaign_id)");
 
 /** Transacción manual (node:sqlite no trae helper como better-sqlite3) */
 export function transaction<T>(fn: () => T): T {

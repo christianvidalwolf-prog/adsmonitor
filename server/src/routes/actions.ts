@@ -33,6 +33,7 @@ const ACTION_TYPES: ActionType[] = [
   "add_negative",
   "move_to_exact",
   "graduate_keyword",
+  "increase_placement_mod",
   "change_budget",
   "change_campaign_status",
 ];
@@ -75,13 +76,19 @@ interface FactMetricRow extends BaseMetrics {
 
 interface RecommendationFactRow extends FactMetricRow {
   marketplace: Marketplace;
+  campaign_id: string | null;
   campaign_name: string | null;
+  campaign_type: string | null;
   ad_group_name: string | null;
   keyword_text: string | null;
   keyword_norm: string | null;
   match_type: string | null;
   search_term: string | null;
   search_term_norm: string | null;
+  placement: string | null;
+  placement_percentage: number | null;
+  top_search_impression_share: number | null;
+  top_search_bid_adjustment: number | null;
 }
 
 const PROTOCOL_SOFT_TARGET_ACOS = 0.12;
@@ -394,6 +401,39 @@ function recommendationDate(marketplace: Marketplace, reportType: string): strin
   return row?.date_to ?? new Date().toISOString().slice(0, 10);
 }
 
+function campaignNameById(marketplaces?: string[]): Map<string, string> {
+  let sql = `SELECT marketplace, campaign_id, campaign_name
+             FROM facts
+             WHERE report_type = 'campaigns'
+               AND campaign_id IS NOT NULL
+               AND campaign_name IS NOT NULL`;
+  const params: unknown[] = [];
+  if (marketplaces && marketplaces.length > 0) {
+    sql += ` AND marketplace IN (${marketplaces.map(() => "?").join(",")})`;
+    params.push(...marketplaces);
+  }
+  const rows = db.prepare(sql).all(...(params as any[])) as {
+    marketplace: Marketplace;
+    campaign_id: string;
+    campaign_name: string;
+  }[];
+  return new Map(rows.map((r) => [`${r.marketplace}|${r.campaign_id}`, r.campaign_name]));
+}
+
+function isSponsoredProductsType(t: string | null): boolean {
+  if (!t) return true;
+  const v = t.trim().toLowerCase();
+  return v === "sp" || v.includes("sponsored products");
+}
+
+function placementKind(placement: string | null): "top" | "product" | "rest" | null {
+  const v = (placement ?? "").toLowerCase();
+  if (v.includes("top")) return "top";
+  if (v.includes("product")) return "product";
+  if (v.includes("rest")) return "rest";
+  return null;
+}
+
 function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
   const settings = getSettings();
   let mktSql = "";
@@ -440,7 +480,7 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
         actionType: "decrease_bid",
         owner: "",
         hypothesis: "Mitigar costes hacia ACoS objetivo reduciendo la puja un 15%-25%.",
-        notes: "Protocolo Ads 2026.1: R-004. No se aplican R-005/R-006 porque faltan Top of Search Share y placement ROAS.",
+        notes: "Protocolo Ads 2026.1: R-004. Reducir puja 15%-25% y monitorizar 7 días.",
         implementedAt,
         baselineWindowDays: 7,
         evaluationWindowDays: 7,
@@ -451,6 +491,157 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
           recommended_bid_change_pct_max: -15,
           soft_reference_acos: PROTOCOL_SOFT_TARGET_ACOS,
           current_acos: metrics.acos,
+        },
+        metrics,
+      });
+    }
+  }
+
+  const topSearchFacts = db
+    .prepare(`SELECT * FROM facts WHERE report_type = 'top_search'${mktSql}`)
+    .all(...(mktParams as any[])) as unknown as RecommendationFactRow[];
+  const topSearchRows = groupRecommendationRows(
+    topSearchFacts,
+    (r) => (r.campaign_name ? `${r.marketplace}|${r.campaign_name}` : null),
+    (r) => ({
+      marketplace: r.marketplace,
+      campaignName: r.campaign_name,
+      campaignType: r.campaign_type,
+      topSearchImpressionShare: r.top_search_impression_share,
+      topSearchBidAdjustment: r.top_search_bid_adjustment,
+    })
+  );
+  for (const row of topSearchRows) {
+    const metrics = asMetrics(row);
+    const share = row.topSearchImpressionShare;
+    const implementedAt = recommendationDate(row.marketplace, "top_search");
+    if (
+      isSponsoredProductsType(row.campaignType) &&
+      share !== null &&
+      share < 0.6 &&
+      metrics.acos !== null &&
+      metrics.acos <= PROTOCOL_SOFT_TARGET_ACOS &&
+      metrics.sales > 0
+    ) {
+      out.push({
+        id: `R-005|${row.marketplace}|${row.campaignName}`,
+        triggerRuleId: "R-005",
+        protocolAction: "INCREASE_BID",
+        confidenceLevel: metrics.clicks >= 50 || metrics.orders >= 3 ? "HIGH" : "MEDIUM",
+        source: "recommendation",
+        entityType: "campaign",
+        marketplace: row.marketplace,
+        campaignName: row.campaignName,
+        actionType: "increase_bid",
+        owner: "",
+        hypothesis: "Capturar más cuota Top of Search en campaña eficiente sin superar el ACOS objetivo suave.",
+        notes: "Protocolo Ads 2026.1: R-005. Requiere aplicar el aumento sobre keywords/targets ganadores o revisar el modificador Top of Search antes de ejecutar en Amazon.",
+        implementedAt,
+        baselineWindowDays: 7,
+        evaluationWindowDays: 7,
+        status: "implemented",
+        reason: `R-005: ACOS ${(metrics.acos * 100).toFixed(1)}% <= 12% y Top of Search IS ${(share * 100).toFixed(1)}% < 60%. Escalar visibilidad.`,
+        actionDetails: {
+          top_search_impression_share: share,
+          current_top_search_bid_adjustment: row.topSearchBidAdjustment,
+          recommended_bid_change_pct_min: 10,
+          recommended_bid_change_pct_max: 20,
+          soft_reference_acos: PROTOCOL_SOFT_TARGET_ACOS,
+          current_acos: metrics.acos,
+        },
+        metrics,
+      });
+    }
+  }
+
+  const campaignNames = campaignNameById(marketplaces);
+  const placementFacts = db
+    .prepare(`SELECT * FROM facts WHERE report_type = 'placements'${mktSql}`)
+    .all(...(mktParams as any[])) as unknown as RecommendationFactRow[];
+  const placementGroups = new Map<
+    string,
+    {
+      marketplace: Marketplace;
+      campaignId: string;
+      campaignName: string | null;
+      placements: Partial<Record<"top" | "product" | "rest", BaseMetrics & {
+        placementPercentage: number | null;
+      }>>;
+    }
+  >();
+  for (const row of placementFacts) {
+    if (!row.campaign_id) continue;
+    const kind = placementKind(row.placement);
+    if (!kind) continue;
+    const key = `${row.marketplace}|${row.campaign_id}`;
+    let group = placementGroups.get(key);
+    if (!group) {
+      group = {
+        marketplace: row.marketplace,
+        campaignId: row.campaign_id,
+        campaignName:
+          row.campaign_name ?? campaignNames.get(`${row.marketplace}|${row.campaign_id}`) ?? null,
+        placements: {},
+      };
+      placementGroups.set(key, group);
+    }
+    let slot = group.placements[kind];
+    if (!slot) {
+      slot = { ...emptyMetrics(), placementPercentage: row.placement_percentage };
+      group.placements[kind] = slot;
+    }
+    addMetrics(slot, row);
+    if (slot.placementPercentage === null && row.placement_percentage !== null) {
+      slot.placementPercentage = row.placement_percentage;
+    }
+  }
+  for (const group of placementGroups.values()) {
+    const top = group.placements.top;
+    const product = group.placements.product;
+    if (!top || !product) continue;
+    const topMetrics = asMetrics(top);
+    const productMetrics = asMetrics(product);
+    if (
+      topMetrics.roas !== null &&
+      productMetrics.roas !== null &&
+      topMetrics.roas > 0 &&
+      productMetrics.roas > 0 &&
+      topMetrics.spend > 0 &&
+      productMetrics.spend > 0 &&
+      topMetrics.roas >= productMetrics.roas * 1.5
+    ) {
+      const combined = { ...emptyMetrics() };
+      addMetrics(combined, top);
+      addMetrics(combined, product);
+      if (group.placements.rest) addMetrics(combined, group.placements.rest);
+      const metrics = asMetrics(combined);
+      const implementedAt = recommendationDate(group.marketplace, "placements");
+      out.push({
+        id: `R-006|${group.marketplace}|${group.campaignId}`,
+        triggerRuleId: "R-006",
+        protocolAction: "INCREASE_PLACEMENT_MOD",
+        confidenceLevel: topMetrics.orders >= 5 || topMetrics.clicks >= 50 ? "HIGH" : "MEDIUM",
+        source: "recommendation",
+        entityType: "campaign",
+        marketplace: group.marketplace,
+        campaignName: group.campaignName,
+        actionType: "increase_placement_mod",
+        owner: "",
+        hypothesis: "Aumentar el modificador Top of Search donde el ROAS supera claramente Product Pages.",
+        notes: "Protocolo Ads 2026.1: R-006. Subir Top of Search +20%-40% y revisar reducción de bid base -10% antes de ejecutar.",
+        implementedAt,
+        baselineWindowDays: 7,
+        evaluationWindowDays: 7,
+        status: "implemented",
+        reason: `R-006: ToS ROAS ${topMetrics.roas.toFixed(2)} >= 1.5x Product Pages ROAS ${productMetrics.roas.toFixed(2)}.`,
+        actionDetails: {
+          campaign_id: group.campaignId,
+          current_top_search_placement_mod: top.placementPercentage,
+          top_search_roas: topMetrics.roas,
+          product_pages_roas: productMetrics.roas,
+          recommended_top_search_mod_change_pct_min: 20,
+          recommended_top_search_mod_change_pct_max: 40,
+          recommended_base_bid_change_pct: -10,
         },
         metrics,
       });
@@ -574,8 +765,7 @@ function buildRecommendations(marketplaces?: string[]): ActionRecommendation[] {
   const existing = existingRecommendationKeys();
   return out
     .filter((r) => !existing.has(recommendationKey(r)))
-    .sort((a, b) => b.metrics.spend - a.metrics.spend)
-    .slice(0, 100);
+    .sort((a, b) => b.metrics.spend - a.metrics.spend);
 }
 
 function filteredFactsCount(reportType: string, marketplaces?: string[]): number {
@@ -647,6 +837,18 @@ function buildRuleCoverage(
     marketplaces
   );
   const campaignRows = filteredFactsCount("campaigns", marketplaces);
+  const topSearchRows = filteredFactsCount("top_search", marketplaces);
+  const topSearchRowsWithShare = filteredFactsCountWhere(
+    "top_search",
+    "top_search_impression_share IS NOT NULL",
+    marketplaces
+  );
+  const placementRows = filteredFactsCount("placements", marketplaces);
+  const placementRowsWithRoasInputs = filteredFactsCountWhere(
+    "placements",
+    "placement IS NOT NULL AND spend > 0 AND sales > 0",
+    marketplaces
+  );
   const hasCoreGrowthNaming =
     filteredFactsCountWhere(
       "campaigns",
@@ -677,6 +879,8 @@ function buildRuleCoverage(
 
   const hasSearchTerms = searchTermRows > 0;
   const hasKeywords = keywordRows > 0;
+  const hasTopSearch = topSearchRows > 0;
+  const hasPlacements = placementRows > 0;
 
   return [
     rule(
@@ -727,23 +931,41 @@ function buildRuleCoverage(
     ),
     rule(
       "R-005",
-      "blocked",
-      hasKeywords ? ["Keywords", "ACoS"] : [],
-      hasKeywords
-        ? ["Top of Search Impression Share"]
-        : ["Bulk/keyword report", "Top of Search Impression Share"],
-      "Falta Top of Search Impression Share; sin esa señal la regla literal no se ejecuta."
+      hasTopSearch ? (topSearchRowsWithShare > 0 ? "active" : "degraded") : "blocked",
+      [
+        ...(hasTopSearch ? ["Top Search report"] : []),
+        ...(topSearchRowsWithShare > 0 ? ["Top of Search Impression Share"] : []),
+        ...(hasTopSearch ? ["ACoS", "Sales"] : []),
+      ],
+      hasTopSearch
+        ? topSearchRowsWithShare > 0
+          ? []
+          : ["Top of Search Impression Share"]
+        : ["Top Search report"],
+      hasTopSearch
+        ? topSearchRowsWithShare > 0
+          ? "Evaluable con Top of Search IS, ACOS y ventas por campaña."
+          : "Hay Top Search importado, pero falta la columna Top of Search IS."
+        : "Falta el CSV Top Search para evaluar share bajo con ACOS eficiente."
     ),
     rule(
       "R-006",
-      "blocked",
-      campaignRows > 0 ? ["Campaigns"] : [],
-      campaignRows > 0
-        ? ["Placement ROAS por Top/Product/Rest importado en el modelo"]
-        : ["Bulk con bidding adjustments/placements"],
-      campaignRows > 0
-        ? "El modelo actual guarda campañas agregadas, pero no persiste placement ROAS; la regla queda no evaluable."
-        : "No hay campañas ni placement rows importados para comparar ROAS por placement."
+      hasPlacements ? (placementRowsWithRoasInputs > 0 ? "active" : "degraded") : "blocked",
+      [
+        ...(campaignRows > 0 ? ["Campaigns"] : []),
+        ...(hasPlacements ? ["Placement rows"] : []),
+        ...(placementRowsWithRoasInputs > 0 ? ["Placement ROAS"] : []),
+      ],
+      hasPlacements
+        ? placementRowsWithRoasInputs > 0
+          ? []
+          : ["Spend/Sales por placement"]
+        : ["Bulk con Bidding adjustment / placements"],
+      hasPlacements
+        ? placementRowsWithRoasInputs > 0
+          ? "Evaluable comparando ROAS de Top of Search contra Product Pages."
+          : "Hay placements importados, pero faltan métricas suficientes para calcular ROAS."
+        : "Falta importar el candidato Placements del bulk."
     ),
     rule(
       "R-007",

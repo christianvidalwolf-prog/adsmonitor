@@ -7,7 +7,9 @@ export type ReportType =
   | "keywords"
   | "search_terms"
   | "products"
-  | "portfolios";
+  | "portfolios"
+  | "placements"
+  | "top_search";
 
 export const MARKETPLACES: Marketplace[] = ["ES", "DE", "FR", "IT", "UK"];
 export const MARKETPLACE_CURRENCY: Record<Marketplace, Currency> = {
@@ -24,11 +26,17 @@ export const REPORT_TYPE_LABELS: Record<ReportType, string> = {
   search_terms: "Search Terms",
   products: "Advertised Products",
   portfolios: "Portfolios",
+  placements: "Placements",
+  top_search: "Top of Search",
 };
 
 // ── Campos canónicos ─────────────────────────────────────────────────────
 export type CanonicalField =
   | "date"
+  | "campaignId"
+  | "adGroupId"
+  | "keywordId"
+  | "productTargetingId"
   | "portfolioName"
   | "campaignName"
   | "campaignType"
@@ -41,6 +49,10 @@ export type CanonicalField =
   | "productTitle"
   | "status"
   | "bid"
+  | "placement"
+  | "placementPercentage"
+  | "topSearchImpressionShare"
+  | "topSearchBidAdjustment"
   | "currency"
   | "impressions"
   | "clicks"
@@ -163,6 +175,7 @@ export type ActionType =
   | "add_negative"
   | "move_to_exact"
   | "graduate_keyword"
+  | "increase_placement_mod"
   | "change_budget"
   | "change_campaign_status";
 

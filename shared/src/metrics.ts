@@ -42,6 +42,7 @@ export function parseNumber(raw: unknown): number | null {
   let s = String(raw).trim();
   if (!s) return null;
   const isPct = s.includes("%");
+  s = s.replace(/[<>]/g, "");
   s = s.replace(/[€£$%\s\u00a0]/g, "");
   if (!s || s === "-" || s === "--") return null;
   const negative = /^\(.*\)$/.test(s) || s.startsWith("-");

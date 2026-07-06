@@ -19,6 +19,15 @@ export function normalizeHeader(h: string): string {
 
 const DICT: Record<CanonicalField, string[]> = {
   date: ["date", "start date", "fecha", "datum", "data"],
+  campaignId: ["campaign id", "campaignid", "id campana", "id de campana"],
+  adGroupId: ["ad group id", "adgroup id", "adgroupid", "id grupo de anuncios"],
+  keywordId: ["keyword id", "keywordid", "id palabra clave"],
+  productTargetingId: [
+    "product targeting id",
+    "targeting id",
+    "target id",
+    "id segmentacion de producto",
+  ],
   portfolioName: [
     "portfolio name",
     "portfolio",
@@ -46,6 +55,7 @@ const DICT: Record<CanonicalField, string[]> = {
   campaignType: [
     "campaign type",
     "ad type",
+    "type",
     "tipo de campana",
     "tipo de anuncio",
     "kampagnentyp",
@@ -140,6 +150,25 @@ const DICT: Record<CanonicalField, string[]> = {
     "stato",
   ],
   bid: ["bid", "keyword bid", "puja", "gebot", "enchere", "offerta"],
+  placement: ["placement", "ubicacion", "posicion", "platzierung", "emplacement"],
+  placementPercentage: [
+    "percentage",
+    "placement percentage",
+    "porcentaje",
+  ],
+  topSearchImpressionShare: [
+    "top of search impression share",
+    "top of search impression share is",
+    "top of search is",
+    "top search impression share",
+    "top search is",
+    "top of search share",
+  ],
+  topSearchBidAdjustment: [
+    "top of search bid adjustment",
+    "top search bid adjustment",
+    "tos bid adjustment",
+  ],
   currency: ["currency", "divisa", "moneda", "wahrung", "devise", "valuta"],
   impressions: [
     "impressions",
@@ -161,6 +190,8 @@ const DICT: Record<CanonicalField, string[]> = {
     "cout",
     "spesa",
     "costo",
+    "total cost",
+    "total cost converted",
   ],
   sales: [
     "sales",
@@ -172,9 +203,11 @@ const DICT: Record<CanonicalField, string[]> = {
     "14 day total sales",
     "7 day total sales",
     "total sales",
+    "sales converted",
   ],
   orders: [
     "orders",
+    "purchases",
     "pedidos",
     "bestellungen",
     "commandes",
@@ -286,6 +319,8 @@ export function mapHeaders(
 export function detectReportType(
   fields: Set<CanonicalField>
 ): ReportType | null {
+  if (fields.has("topSearchImpressionShare")) return "top_search";
+  if (fields.has("placement")) return "placements";
   if (fields.has("searchTerm")) return "search_terms";
   if (fields.has("asin") || fields.has("sku")) return "products";
   if (fields.has("keywordText") || fields.has("matchType")) return "keywords";
@@ -301,6 +336,8 @@ export const REQUIRED_FIELDS: Record<ReportType, CanonicalField[]> = {
   search_terms: ["campaignName", "searchTerm", "spend"],
   products: ["campaignName", "asin", "spend"],
   portfolios: ["portfolioName"],
+  placements: ["campaignId", "placement", "spend"],
+  top_search: ["campaignName", "topSearchImpressionShare"],
 };
 
 /** Métricas cuya ausencia no bloquea, pero anula KPIs (aviso visible) */
