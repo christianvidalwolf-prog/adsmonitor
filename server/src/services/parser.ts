@@ -59,10 +59,10 @@ function parseSheet(name: string, sheet: XLSX.WorkSheet): ParsedSheet | null {
     raw: true,
     blankrows: false,
   });
-  if (matrix.length === 0) return null;
+  if (matrix.length === 0) return parseSheetLegacy(name, sheet);
 
   const headerRowIndex = findHeaderRow(matrix);
-  if (headerRowIndex === null) return null;
+  if (headerRowIndex === null) return parseSheetLegacy(name, sheet);
 
   const headers = uniqueHeaders(matrix[headerRowIndex]);
   const rows = matrix
@@ -71,8 +71,22 @@ function parseSheet(name: string, sheet: XLSX.WorkSheet): ParsedSheet | null {
     .filter((row) =>
       Object.values(row).some((v) => v !== null && v !== undefined && v !== "")
     );
-  if (rows.length === 0) return null;
+  if (rows.length === 0) return parseSheetLegacy(name, sheet);
   return { name, headers, rows, headerRowIndex };
+}
+
+function parseSheetLegacy(
+  name: string,
+  sheet: XLSX.WorkSheet
+): ParsedSheet | null {
+  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
+    defval: null,
+    raw: true,
+  });
+  if (rows.length === 0) return null;
+  const headers = Object.keys(rows[0]);
+  if (headers.length === 0) return null;
+  return { name, headers, rows, headerRowIndex: 0 };
 }
 
 function findHeaderRow(matrix: unknown[][]): number | null {
