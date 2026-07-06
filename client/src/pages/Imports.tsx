@@ -9,6 +9,15 @@ import { MARKETPLACES, REPORT_TYPE_LABELS } from "@shared";
 import { api, ApiError } from "../api";
 import { Notice } from "../components/ui";
 
+function reportTypeLabel(type: ImportMeta["reportType"] | ImportPreview["detectedReportType"]) {
+  if (!type) return "?";
+  return REPORT_TYPE_LABELS[type] ?? type;
+}
+
+function missingFields(importMeta: ImportMeta) {
+  return Array.isArray(importMeta.missingFields) ? importMeta.missingFields : [];
+}
+
 export default function Imports() {
   const [imports, setImports] = useState<ImportMeta[]>([]);
   const [previews, setPreviews] = useState<ImportPreview[]>([]);
@@ -142,9 +151,7 @@ export default function Imports() {
             <h2 className="text-sm font-bold">
               {preview.filename} ·{" "}
               <span className="text-accent">
-                {preview.detectedReportType
-                  ? REPORT_TYPE_LABELS[preview.detectedReportType]
-                  : "?"}
+                {reportTypeLabel(preview.detectedReportType)}
               </span>{" "}
               · {preview.rowCount} filas
             </h2>
@@ -171,9 +178,7 @@ export default function Imports() {
                       }`}
                     >
                       {p.sheetLabel} ·{" "}
-                      {p.detectedReportType
-                        ? REPORT_TYPE_LABELS[p.detectedReportType]
-                        : "?"}{" "}
+                      {reportTypeLabel(p.detectedReportType)}{" "}
                       · {p.rowCount} filas{done ? " ✓" : ""}
                     </button>
                   );
@@ -321,13 +326,13 @@ export default function Imports() {
                     <span className="inline-block max-w-64 truncate align-bottom" title={i.filename}>
                       {i.filename}
                     </span>
-                    {i.missingFields.length > 0 && (
-                      <span className="ml-2 text-[10px] text-warn" title={`Sin columnas: ${i.missingFields.join(", ")}`}>
+                    {missingFields(i).length > 0 && (
+                      <span className="ml-2 text-[10px] text-warn" title={`Sin columnas: ${missingFields(i).join(", ")}`}>
                         ⚠ métricas incompletas
                       </span>
                     )}
                   </td>
-                  <td>{REPORT_TYPE_LABELS[i.reportType]}</td>
+                  <td>{reportTypeLabel(i.reportType)}</td>
                   <td className="font-mono">{i.marketplace}</td>
                   <td className="text-muted">{i.source}</td>
                   <td className="font-mono text-xs">

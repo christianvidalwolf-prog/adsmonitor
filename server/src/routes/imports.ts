@@ -12,6 +12,7 @@ import {
   MARKETPLACES,
   MARKETPLACE_CURRENCY,
   normalizeTerm,
+  type CanonicalField,
   type CommitRequest,
   type ImportMeta,
   type Marketplace,
@@ -34,6 +35,16 @@ setInterval(() => {
 }, 60_000).unref();
 
 export const importsRouter = Router();
+
+function parseMissingFields(raw: unknown): CanonicalField[] {
+  if (typeof raw !== "string") return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as CanonicalField[]) : [];
+  } catch {
+    return [];
+  }
+}
 
 importsRouter.post("/preview", upload.single("file"), (req, res) => {
   try {
@@ -200,7 +211,7 @@ importsRouter.get("/", (_req, res) => {
     dateTo: r.date_to,
     rowCount: r.row_count,
     hasDateColumn: !!r.has_date_column,
-    missingFields: JSON.parse(r.missing_fields ?? "[]"),
+    missingFields: parseMissingFields(r.missing_fields),
     uploadedAt: r.uploaded_at,
   }));
   res.json(out);
