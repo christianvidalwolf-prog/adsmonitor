@@ -1,0 +1,21 @@
+# Amazon Offer File Validation Report
+**Target File**: `PriceAndQuantity_Ofertas_Minerales_DE.xlsm`  
+**Status**: ✅ SUCCESS - Ready to Upload  
+**Date Verified**: 2026-07-02  
+
+## Summary Statistics
+| Metric | Count |
+| :--- | :---: |
+| Verified SKUs | 2033 |
+| Unique SKUs | 2033 |
+| Duplicate SKUs | 0 |
+| Critical Errors | 0 |
+
+## ✅ Verification Checklist Passed
+- [x] All SKUs present and unique.
+- [x] Pricing validations (standard price > sale price > 0) correct.
+- [x] FBM listings set to 'DEFAULT' fulfillment code.
+- [x] Promotional date ranges structured in correct price schedule columns.
+- [x] Dates chronological and formatted as YYYY-MM-DD.
+
+**Conclusion**: The file is compliant with Amazon upload standards.
